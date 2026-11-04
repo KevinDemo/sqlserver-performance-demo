@@ -1,0 +1,117 @@
+{
+  "RunUtc": "2026-11-04T02:30:40.8953688Z",
+  "Server": "Microsoft SQL Server 2019 (RTM-CU27-GDR) (KB5040948) - 15.0.4382.1 (X64)",
+  "Repetitions": 7,
+  "Rows": [
+    {
+      "Scenario": "01-non-sargable-date",
+      "Case": "one-day report",
+      "Before": {
+        "Label": "one-day report",
+        "ElapsedMs": 108.4444,
+        "CpuMs": 109,
+        "LogicalReads": 6399,
+        "RowCount": 822,
+        "ResultHash": -2222042094655760524,
+        "Plan": "Clustered Index Scan PK_Jobs"
+      },
+      "After": {
+        "Label": "one-day report",
+        "ElapsedMs": 2.1021,
+        "CpuMs": 0,
+        "LogicalReads": 2532,
+        "RowCount": 822,
+        "ResultHash": -2222042094655760524,
+        "Plan": "Index Seek IX_Jobs_BookedUtc \u002B Key Lookup PK_Jobs"
+      }
+    },
+    {
+      "Scenario": "02-key-lookups",
+      "Case": "zone despatch board",
+      "Before": {
+        "Label": "zone despatch board",
+        "ElapsedMs": 1.385,
+        "CpuMs": 0,
+        "LogicalReads": 2528,
+        "RowCount": 21,
+        "ResultHash": 666065241543155805,
+        "Plan": "Index Seek IX_Jobs_BookedUtc \u002B Key Lookup PK_Jobs"
+      },
+      "After": {
+        "Label": "zone despatch board",
+        "ElapsedMs": 0.2867,
+        "CpuMs": 0,
+        "LogicalReads": 3,
+        "RowCount": 21,
+        "ResultHash": 666065241543155805,
+        "Plan": "Index Seek IX_Jobs_PickupZone_BookedUtc"
+      }
+    },
+    {
+      "Scenario": "03-parameter-sniffing",
+      "Case": "large customer, small customer ran first",
+      "Before": {
+        "Label": "large customer, small customer ran first",
+        "ElapsedMs": 304.0235,
+        "CpuMs": 219,
+        "LogicalReads": 360172,
+        "RowCount": 119987,
+        "ResultHash": 868671292112724695,
+        "Plan": "Sort \u002B Index Seek IX_Jobs_CustomerId \u002B Key Lookup PK_Jobs"
+      },
+      "After": {
+        "Label": "large customer, small customer ran first",
+        "ElapsedMs": 185.1299,
+        "CpuMs": 78,
+        "LogicalReads": 6399,
+        "RowCount": 119987,
+        "ResultHash": 868671292112724695,
+        "Plan": "Sort \u002B Clustered Index Scan PK_Jobs"
+      }
+    },
+    {
+      "Scenario": "03-parameter-sniffing",
+      "Case": "small customer, large customer ran first",
+      "Before": {
+        "Label": "small customer, large customer ran first",
+        "ElapsedMs": 37.7031,
+        "CpuMs": 31,
+        "LogicalReads": 6399,
+        "RowCount": 18,
+        "ResultHash": -6881691495492622658,
+        "Plan": "Sort \u002B Clustered Index Scan PK_Jobs"
+      },
+      "After": {
+        "Label": "small customer, large customer ran first",
+        "ElapsedMs": 1.2928,
+        "CpuMs": 0,
+        "LogicalReads": 57,
+        "RowCount": 18,
+        "ResultHash": -6881691495492622658,
+        "Plan": "Sort \u002B Index Seek IX_Jobs_CustomerId \u002B Key Lookup PK_Jobs"
+      }
+    },
+    {
+      "Scenario": "04-implicit-conversion",
+      "Case": "lookup by consignment number",
+      "Before": {
+        "Label": "lookup by consignment number",
+        "ElapsedMs": 66.2284,
+        "CpuMs": 63,
+        "LogicalReads": 2918,
+        "RowCount": 1,
+        "ResultHash": -5245958595688794751,
+        "Plan": "Index Scan UX_Consignments_Number \u002B Key Lookup PK_Consignments"
+      },
+      "After": {
+        "Label": "lookup by consignment number",
+        "ElapsedMs": 0.2745,
+        "CpuMs": 0,
+        "LogicalReads": 6,
+        "RowCount": 1,
+        "ResultHash": -5245958595688794751,
+        "Plan": "Index Seek UX_Consignments_Number \u002B Key Lookup PK_Consignments"
+      }
+    }
+  ]
+}
