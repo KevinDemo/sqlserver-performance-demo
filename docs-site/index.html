@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SQL Server performance results - Harbour Freight Couriers (fictional)</title>
+<meta name="description" content="Before and after query plans, reads and timings for five SQL Server performance problems.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f6f4">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a0b0c">
+<script>
+(function () {
+  var root = document.documentElement;
+  root.classList.add("js");
+  try {
+    var saved = localStorage.getItem("theme");
+    if (saved === "light" || saved === "dark") root.dataset.theme = saved;
+  } catch (e) {}
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400..700&family=Geist+Mono:wght@400..600&display=swap">
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap topbar-row">
+    <a class="mark" href="https://kevindemo.github.io/" target="_blank" rel="noopener"><span class="mark-box" aria-hidden="true">KC</span>Kevin Chen</a>
+    <span class="product">SQL Server performance case study</span>
+    <nav aria-label="Links">
+      
+      <a href="https://github.com/KevinDemo/sqlserver-performance-demo" target="_blank" rel="noopener">Source on GitHub</a>
+    </nav>
+    <fieldset class="theme">
+      <legend class="sr">Theme</legend>
+      <label><input type="radio" name="theme" value="system" checked><span>System</span></label>
+      <label><input type="radio" name="theme" value="light"><span>Light</span></label>
+      <label><input type="radio" name="theme" value="dark"><span>Dark</span></label>
+    </fieldset>
+  </div>
+</header>
+<div class="banner-band"><p class="wrap banner" role="note">Static demo running in your browser. The real .NET service is in the repo.</p></div>
+<div class="wrap sheet">
+
+<section class="intro">
+  <h1>SQL Server performance case study</h1>
+  <p>Five common production problems on a fictional courier schema, reproduced, fixed and measured. Measured on Microsoft SQL Server 2019 (RTM-CU27-GDR) (KB5040948) - 15.0.4382.1 (X64), median of 7 runs with a warm cache, on 2026-11-04. Generated from the repo's results files.</p>
+</section>
+<section class="scenario" id="summary">
+  <h2>Results</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Scenario</th><th class="num">Reads before</th><th class="num">Reads after</th><th class="num">Elapsed before</th><th class="num">Elapsed after</th></tr></thead>
+    <tbody><tr>
+  <td>01 non sargable date, one-day report</td>
+  <td class="num">6,399</td><td class="num">2,532</td>
+  <td class="num">108.4 ms</td><td class="num">2.1 ms</td>
+</tr><tr>
+  <td>02 key lookups, zone despatch board</td>
+  <td class="num">2,528</td><td class="num">3</td>
+  <td class="num">1.4 ms</td><td class="num">0.3 ms</td>
+</tr><tr>
+  <td>03 parameter sniffing, large customer, small customer ran first</td>
+  <td class="num">360,172</td><td class="num">6,399</td>
+  <td class="num">304.0 ms</td><td class="num">185.1 ms</td>
+</tr><tr>
+  <td>03 parameter sniffing, small customer, large customer ran first</td>
+  <td class="num">6,399</td><td class="num">57</td>
+  <td class="num">37.7 ms</td><td class="num">1.3 ms</td>
+</tr><tr>
+  <td>04 implicit conversion, lookup by consignment number</td>
+  <td class="num">2,918</td><td class="num">6</td>
+  <td class="num">66.2 ms</td><td class="num">0.3 ms</td>
+</tr></tbody>
+  </table></div>
+  <p class="hint read-note">Logical reads came out the same on every run, so they are the stable measure. Elapsed times moved by up to about 50% between runs, so treat them as orders of magnitude. This is a developer machine with everything in memory, not a promise about your server.</p>
+</section>
+<section class="scenario" id="s01">
+    <h2>Function on a date column</h2>
+    <div class="writeup"><p><strong>Problem.</strong> A daily report filters with <code class="mono">CONVERT(CHAR(10), BookedUtc, 120) = '2025-03-14'</code>. Wrapping the column in a function means SQL Server cannot seek the index on <code class="mono">BookedUtc</code>, so it scans all 600,000 jobs and converts each date to text.</p><p><strong>Fix.</strong> Filter the bare column with a half-open range: <code class="mono">BookedUtc &gt;= '2025-03-14' AND BookedUtc &lt; '2025-03-15'</code>. No schema change, same 822 rows.</p><p><strong>Measured.</strong> Logical reads went from 6,399 to 2,532. Elapsed time went from about 108 ms to about 2 ms.</p><p><strong>Worth noticing.</strong> Reads fell by only 2.5 times but elapsed time fell by about 50 times. Most of the original cost was CPU spent converting 600,000 dates to strings, which a reads-only review would underrate. The 2,532 reads that remain are key lookups, and scenario 02 shows how to remove that kind of cost when a query runs often enough to justify an index.</p></div>
+    <div class="case">
+    <h3>One-day report <span class="rowcount mono">822 rows, same result before and after</span></h3>
+    <div class="meters">
+      <figure class="meter">
+    <figcaption>Logical reads</figcaption>
+    <div class="meter-row"><span class="meter-key">Before</span><span class="meter-track"><i class="meter-before" style="width:100%"></i></span><span class="meter-val">6,399</span></div>
+    <div class="meter-row"><span class="meter-key">After</span><span class="meter-track"><i class="meter-after" style="width:39.569%"></i></span><span class="meter-val">2,532</span></div>
+  </figure>
+      <figure class="meter">
+    <figcaption>Elapsed, median of 7 runs</figcaption>
+    <div class="meter-row"><span class="meter-key">Before</span><span class="meter-track"><i class="meter-before" style="width:100%"></i></span><span class="meter-val">108.4 ms</span></div>
+    <div class="meter-row"><span class="meter-key">After</span><span class="meter-track"><i class="meter-after" style="width:1.938%"></i></span><span class="meter-val">2.1 ms</span></div>
+  </figure>
+      <figure class="meter">
+    <figcaption>CPU</figcaption>
+    <div class="meter-row"><span class="meter-key">Before</span><span class="meter-track"><i class="meter-before" style="width:100%"></i></span><span class="meter-val">109 ms</span></div>
+    <div class="meter-row"><span class="meter-key">After</span><span class="meter-track"><i class="meter-after" style="width:0.000%"></i></span><span class="meter-val">0 ms</span></div>
+  </figure>
+    </div>
+    <div class="pair"><div>
+      <h4>Plan before</h4>
+      <pre class="plan"><span class="op">Clustered Index Scan PK_Jobs</span>  <span class="rows">actual 822, est. 1</span></pre>
+      <a class="plan-link" href="https://github.com/KevinDemo/sqlserver-performance-demo/blob/main/results/plans/01-non-sargable-date-before-1.sqlplan" target="_blank" rel="noopener">01-non-sargable-date-before-1.sqlplan</a>
+    </div><div>
+      <h4>Plan after</h4>
+      <pre class="plan"><span class="op">Nested Loops</span>  <span class="rows">actual 822, est. 823</span>
+<span class="op">  Nested Loops</span>  <span class="rows">actual 822, est. 823</span>
+<span class="op">    Merge Interval</span>  <span class="rows">actual 1, est. 2</span>
+<span class="op">      Concatenation</span>  <span class="rows">actual 2, est. 2</span>
+<span class="op">        Compute Scalar</span>  <span class="rows">actual 1, est. 1</span>
+<span class="op">          Constant Scan</span>  <span class="rows">actual 1, est. 1</span>
+<span class="op">        Compute Scalar</span>  <span class="rows">actual 1, est. 1</span>
+<span class="op">          Constant Scan</span>  <span class="rows">actual 1, est. 1</span>
+<span class="op">    Index Seek IX_Jobs_BookedUtc</span>  <span class="rows">actual 822, est. 823</span>
+<span class="op">  Key Lookup PK_Jobs</span>  <span class="rows">actual 822, est. 1</span></pre>
+      <a class="plan-link" href="https://github.com/KevinDemo/sqlserver-performance-demo/blob/main/results/plans/01-non-sargable-date-after-1.sqlplan" target="_blank" rel="noopener">01-non-sargable-date-after-1.sqlplan</a>
+    </div></div>
+  </div>
+    <details><summary>The SQL, before and after</summary><div class="pair"><div><h4>before.sql</h4><pre>-- Daily report written by converting the column to text. The index on BookedUtc cannot be used for a seek.
+-- BENCH:MEASURE one-day report
+SELECT JobId, CustomerId, BookedUtc, JobStatus
+FROM dbo.Jobs
+WHERE CONVERT(CHAR(10), BookedUtc, 120) = '2025-03-14';</pre></div><div><h4>after.sql</h4><pre>-- Same report as a half-open date range on the bare column. No schema change needed.
+-- BENCH:MEASURE one-day report
+SELECT JobId, CustomerId, BookedUtc, JobStatus
+FROM dbo.Jobs
+WHERE BookedUtc &gt;= '2025-03-14' AND BookedUtc &lt; '2025-03-15';</pre></div></div></details>
+  </section><section class="scenario" id="s02">
+    <h2>Key lookups from the wrong index</h2>
+    <div class="writeup"><p><strong>Problem.</strong> A despatch board asks for one pickup zone on one day. The only useful index is on <code class="mono">BookedUtc</code>, so SQL Server reads the day for all 60 zones and does a key lookup per row (822 lookups) to test the zone and fetch the other columns. Only 21 rows come back.</p><p><strong>Fix.</strong> A covering index with the equality column first: <code class="mono">(PickupZoneId, BookedUtc) INCLUDE (CustomerId, DriverId, JobStatus, ServiceLevel)</code>.</p><p><strong>Measured.</strong> Logical reads went from 2,528 to 3. Elapsed time went from about 1.4 ms to about 0.3 ms.</p><p><strong>Worth noticing.</strong> On one execution with a warm cache that time saving is tiny, and it would be dishonest to sell it as more. The value is in reads: a board refreshed by many users all day does about 800 times less page work, which leaves more buffer pool for everything else. Every index also slows writes and takes disk space, so a real review weighs this against the write load and looks for existing indexes it can replace.</p><p><code class="mono">cleanup.sql</code> drops the index afterwards, because it also happens to cover the query in scenario 01 and would change that scenario's &quot;before&quot; numbers. The benchmark hit exactly that on its second run, which is why the cleanup exists.</p></div>
+    <div class="case">
+    <h3>Zone despatch board <span class="rowcount mono">21 rows, same result before and after</span></h3>
+    <div class="meters">
+      <figure class="meter">
+    <figcaption>Logical reads</figcaption>
+    <div class="meter-row"><span class="meter-key">Before</span><span class="meter-track"><i class="meter-before" style="width:100%"></i></span><span class="meter-val">2,528</span></div>
+    <div class="meter-row"><span class="meter-key">After</span><span class="meter-track"><i class="meter-after" style="width:0.119%"></i></span><span class="meter-val">3</span></div>
+  </figure>
+      <figure class="meter">
+    <figcaption>Elapsed, median of 7 runs</figcaption>
+    <div class="meter-row"><span class="meter-key">Before</span><span class="meter-track"><i class="meter-before" style="width:100%"></i></span><span class="meter-val">1.4 ms</span></div>
+    <div class="meter-row"><span class="meter-key">After</span><span class="meter-track"><i class="meter-after" style="width:20.700%"></i></span><span class="meter-val">0.3 ms</span></div>
+  </figure>
+      <figure class="meter">
+    <figcaption>CPU</figcaption>
+    <div class="meter-row"><span class="meter-key">Before</span><span class="meter-track"><i class="meter-before" style="width:0%"></i></span><span class="meter-val">0 ms</span></div>
+    <div class="meter-row"><span class="meter-key">After</span><span class="meter-track"><i class="meter-after" style="width:0.000%"></i></span><span class="meter-val">0 ms</span></div>
+  </figure>
+    </div>
+    <div class="pair"><div>
+      <h4>Plan before</h4>
+      <pre class="plan"><span class="op">Nested Loops</span>  <span class="rows">actual 21, est. 823</span>
+<span class="op">  Nested Loops</span>  <span class="rows">actual 821, est. 823</span>
+<span class="op">    Merge Interval</span>  <span class="rows">actual 1, est. 2</span>
+<span class="op">      Concatenation</span>  <span class="rows">actual 2, est. 2</span>
+<span class="op">        Compute Scalar</span>  <span class="rows">actual 1, est. 1</span>
+<span class="op">          Constant Scan</span>  <span class="rows">actual 1, est. 1</span>
+<span class="op">        Compute Scalar</span>  <span class="rows">actual 1, est. 1</span>
+<span class="op">          Constant Scan</span>  <span class="rows">actual 1, est. 1</span>
+<span class="op">    Index Seek IX_Jobs_BookedUtc</span>  <span class="rows">actual 821, est. 823</span>
+<span class="op">  Key Lookup PK_Jobs</span>  <span class="rows">actual 21, est. 106</span></pre>
+      <a class="plan-link" href="https://github.com/KevinDemo/sqlserver-performance-demo/blob/main/results/plans/02-key-lookups-before-1.sqlplan" target="_blank" rel="noopener">02-key-lookups-before-1.sqlplan</a>
+    </div><div>
+      <h4>Plan after</h4>
+      <pre class="plan"><span class="op">Nested Loops</span>  <span class="rows">actual 21, est. 106</span>
+<span class="op">  Merge Interval</span>  <span class="rows">actual 1, est. 2</span>
+<span class="op">    Concatenation</span>  <span class="rows">actual 2, est. 2</span>
+<span class="op">      Compute Scalar</span>  <span class="rows">actual 1, est. 1</span>
+<span class="op">        Constant Scan</span>  <span class="rows">actual 1, est. 1</span>
+<span class="op">      Compute Scalar</span>  <span class="rows">actual 1, est. 1</span>
+<span class="op">        Constant Scan</span>  <span class="rows">actual 1, est. 1</span>
+<span class="op">  Index Seek IX_Jobs_PickupZone_BookedUtc</span>  <span class="rows">actual 21, est. 106</span></pre>
+      <a class="plan-link" href="https://github.com/KevinDemo/sqlserver-performance-demo/blob/main/results/plans/02-key-lookups-after-1.sqlplan" target="_blank" rel="noopener">02-key-lookups-after-1.sqlplan</a>
+    </div></div>
+  </div>
+    <details><summary>The SQL, before and after</summary><div class="pair"><div><h4>before.sql</h4><pre>-- Despatch board for one pickup zone. Only the index on BookedUtc helps, so the query seeks a one-day
+-- range for all zones and does a key lookup per row just to test PickupZoneId and fetch the other columns.
+DROP INDEX IF EXISTS IX_Jobs_PickupZone_BookedUtc ON dbo.Jobs;
+GO
+-- BENCH:MEASURE zone despatch board
+SELECT JobId, CustomerId, DriverId, JobStatus, ServiceLevel, BookedUtc
+FROM dbo.Jobs
+WHERE PickupZoneId = 17
+  AND BookedUtc &gt;= '2025-10-06' AND BookedUtc &lt; '2025-10-07';</pre></div><div><h4>after.sql</h4><pre>-- Covering index: equality column first, then the range column, with the selected columns included.
+DROP INDEX IF EXISTS IX_Jobs_PickupZone_BookedUtc ON dbo.Jobs;
+GO
+CREATE INDEX IX_Jobs_PickupZone_BookedUtc
+    ON dbo.Jobs (PickupZoneId, BookedUtc)
+    INCLUDE (CustomerId, DriverId, JobStatus, ServiceLevel);
+GO
+-- BENCH:MEASURE zone despatch board
+SELECT JobId, CustomerId, DriverId, JobStatus, ServiceLevel, BookedUtc
+FROM dbo.Jobs
+WHERE PickupZoneId = 17
+  AND BookedUtc &gt;= '2025-10-06' AND BookedUtc &lt; '2025-10-07';</pre></div></div></details>
+  </section><section class="scenario" id="s03">
+    <h2>Parameter sniffing on a stored procedure</h2>
+    <div class="writeup"><p><strong>Problem.</strong> <code class="mono">dbo.GetCustomerJobs</code> returns a customer's job history. Customer 1 has 119,987 jobs and customer 5000 has 18. SQL Server builds the cached plan for whichever value it sees first, so the same procedure is fast or slow depending on who ran first after the last recompile. That is why this kind of issue often looks random and &quot;fixes itself&quot; after a restart.</p><p><strong>Fix.</strong> <code class="mono">OPTION (RECOMPILE)</code> on the statement, so each call gets a plan for its own value.</p><p><strong>Measured.</strong></p><p><strong>Worth noticing.</strong> Both directions are bad. The large customer suffers from 120,000 key lookups, and the small customer pays for a full scan to get 18 rows. <code class="mono">OPTION (RECOMPILE)</code> is not free, since every call compiles, and that is acceptable here but not for a procedure called thousands of times a minute. In that case I would look at a covering index, <code class="mono">OPTIMIZE FOR</code>, or separate code paths for the few very large customers. Which one is right depends on call frequency, so the choice is made per procedure.</p></div>
+    <div class="case">
+    <h3>Large customer, small customer ran first <span class="rowcount mono">119,987 rows, same result before and after</span></h3>
+    <div class="meters">
+      <figure class="meter">
+    <figcaption>Logical reads</figcaption>
+    <div class="meter-row"><span class="meter-key">Before</span><span class="meter-track"><i class="meter-before" style="width:100%"></i></span><span class="meter-val">360,172</span></div>
+    <div class="meter-row"><span class="meter-key">After</span><span class="meter-track"><i class="meter-after" style="width:1.777%"></i></span><span class="meter-val">6,399</span></div>
+  </figure>
+      <figure class="meter">
+    <figcaption>Elapsed, median of 7 runs</figcaption>
+    <div class="meter-row"><span class="meter-key">Before</span><span class="meter-track"><i class="meter-before" style="width:100%"></i></span><span class="meter-val">304.0 ms</span></div>
+    <div class="meter-row"><span class="meter-key">After</span><span class="meter-track"><i class="meter-after" style="width:60.893%"></i></span><span class="meter-val">185.1 ms</span></div>
+  </figure>
+      <figure class="meter">
+    <figcaption>CPU</figcaption>
+    <div class="meter-row"><span class="meter-key">Before</span><span class="meter-track"><i class="meter-before" style="width:100%"></i></span><span class="meter-val">219 ms</span></div>
+    <div class="meter-row"><span class="meter-key">After</span><span class="meter-track"><i class="meter-after" style="width:35.616%"></i></span><span class="meter-val">78 ms</span></div>
+  </figure>
+    </div>
+    <div class="pair"><div>
+      <h4>Plan before</h4>
+      <pre class="plan"><span class="op">Sort</span>  <span class="rows">actual 119,987, est. 21</span>
+<span class="op">  Nested Loops</span>  <span class="rows">actual 119,987, est. 21</span>
+<span class="op">    Index Seek IX_Jobs_CustomerId</span>  <span class="rows">actual 119,987, est. 21</span>
+<span class="op">    Key Lookup PK_Jobs</span>  <span class="rows">actual 119,987, est. 1</span></pre>
+      <a class="plan-link" href="https://github.com/KevinDemo/sqlserver-performance-demo/blob/main/results/plans/03-parameter-sniffing-before-1.sqlplan" target="_blank" rel="noopener">03-parameter-sniffing-before-1.sqlplan</a>
+    </div><div>
+      <h4>Plan after</h4>
+      <pre class="plan"><span class="op">Sort</span>  <span class="rows">actual 119,987, est. 119,987</span>
+<span class="op">  Clustered Index Scan PK_Jobs</span>  <span class="rows">actual 119,987, est. 119,987</span></pre>
+      <a class="plan-link" href="https://github.com/KevinDemo/sqlserver-performance-demo/blob/main/results/plans/03-parameter-sniffing-after-1.sqlplan" target="_blank" rel="noopener">03-parameter-sniffing-after-1.sqlplan</a>
+    </div></div>
+  </div><div class="case">
+    <h3>Small customer, large customer ran first <span class="rowcount mono">18 rows, same result before and after</span></h3>
+    <div class="meters">
+      <figure class="meter">
+    <figcaption>Logical reads</figcaption>
+    <div class="meter-row"><span class="meter-key">Before</span><span class="meter-track"><i class="meter-before" style="width:100%"></i></span><span class="meter-val">6,399</span></div>
+    <div class="meter-row"><span class="meter-key">After</span><span class="meter-track"><i class="meter-after" style="width:0.891%"></i></span><span class="meter-val">57</span></div>
+  </figure>
+      <figure class="meter">
+    <figcaption>Elapsed, median of 7 runs</figcaption>
+    <div class="meter-row"><span class="meter-key">Before</span><span class="meter-track"><i class="meter-before" style="width:100%"></i></span><span class="meter-val">37.7 ms</span></div>
+    <div class="meter-row"><span class="meter-key">After</span><span class="meter-track"><i class="meter-after" style="width:3.429%"></i></span><span class="meter-val">1.3 ms</span></div>
+  </figure>
+      <figure class="meter">
+    <figcaption>CPU</figcaption>
+    <div class="meter-row"><span class="meter-key">Before</span><span class="meter-track"><i class="meter-before" style="width:100%"></i></span><span class="meter-val">31 ms</span></div>
+    <div class="meter-row"><span class="meter-key">After</span><span class="meter-track"><i class="meter-after" style="width:0.000%"></i></span><span class="meter-val">0 ms</span></div>
+  </figure>
+    </div>
+    <div class="pair"><div>
+      <h4>Plan before</h4>
+      <pre class="plan"><span class="op">Sort</span>  <span class="rows">actual 18, est. 119,987</span>
+<span class="op">  Clustered Index Scan PK_Jobs</span>  <span class="rows">actual 18, est. 119,987</span></pre>
+      <a class="plan-link" href="https://github.com/KevinDemo/sqlserver-performance-demo/blob/main/results/plans/03-parameter-sniffing-before-2.sqlplan" target="_blank" rel="noopener">03-parameter-sniffing-before-2.sqlplan</a>
+    </div><div>
+      <h4>Plan after</h4>
+      <pre class="plan"><span class="op">Sort</span>  <span class="rows">actual 18, est. 21</span>
+<span class="op">  Nested Loops</span>  <span class="rows">actual 18, est. 21</span>
+<span class="op">    Index Seek IX_Jobs_CustomerId</span>  <span class="rows">actual 18, est. 21</span>
+<span class="op">    Key Lookup PK_Jobs</span>  <span class="rows">actual 18, est. 1</span></pre>
+      <a class="plan-link" href="https://github.com/KevinDemo/sqlserver-performance-demo/blob/main/results/plans/03-parameter-sniffing-after-2.sqlplan" target="_blank" rel="noopener">03-parameter-sniffing-after-2.sqlplan</a>
+    </div></div>
+  </div>
+    <details><summary>The SQL, before and after</summary><div class="pair"><div><h4>before.sql</h4><pre>-- Customer job history. Customer 1 owns 20% of all jobs, customer 5000 has a few dozen.
+-- Whichever customer runs first after a recompile decides the plan everyone else gets.
+CREATE OR ALTER PROCEDURE dbo.GetCustomerJobs
+    @CustomerId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT JobId, BookedUtc, JobStatus, ServiceLevel, RatedAmount, Notes
+    FROM dbo.Jobs
+    WHERE CustomerId = @CustomerId
+    ORDER BY BookedUtc DESC;
+END
+GO
+ALTER DATABASE SCOPED CONFIGURATION CLEAR PROCEDURE_CACHE;
+GO
+-- Small customer runs first and caches a seek plus key lookups.
+EXEC dbo.GetCustomerJobs @CustomerId = 5000;
+GO
+-- BENCH:MEASURE large customer, small customer ran first
+EXEC dbo.GetCustomerJobs @CustomerId = 1;
+-- BENCH:PREP
+ALTER DATABASE SCOPED CONFIGURATION CLEAR PROCEDURE_CACHE;
+GO
+-- Large customer runs first and caches a full scan.
+EXEC dbo.GetCustomerJobs @CustomerId = 1;
+GO
+-- BENCH:MEASURE small customer, large customer ran first
+EXEC dbo.GetCustomerJobs @CustomerId = 5000;</pre></div><div><h4>after.sql</h4><pre>-- OPTION (RECOMPILE) gives each call a plan for its own parameter value, at the cost of a compile per call.
+CREATE OR ALTER PROCEDURE dbo.GetCustomerJobs
+    @CustomerId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT JobId, BookedUtc, JobStatus, ServiceLevel, RatedAmount, Notes
+    FROM dbo.Jobs
+    WHERE CustomerId = @CustomerId
+    ORDER BY BookedUtc DESC
+    OPTION (RECOMPILE);
+END
+GO
+ALTER DATABASE SCOPED CONFIGURATION CLEAR PROCEDURE_CACHE;
+GO
+EXEC dbo.GetCustomerJobs @CustomerId = 5000;
+GO
+-- BENCH:MEASURE large customer, small customer ran first
+EXEC dbo.GetCustomerJobs @CustomerId = 1;
+-- BENCH:PREP
+ALTER DATABASE SCOPED CONFIGURATION CLEAR PROCEDURE_CACHE;
+GO
+EXEC dbo.GetCustomerJobs @CustomerId = 1;
+GO
+-- BENCH:MEASURE small customer, large customer ran first
+EXEC dbo.GetCustomerJobs @CustomerId = 5000;</pre></div></div></details>
+  </section><section class="scenario" id="s04">
+    <h2>Implicit conversion, VARCHAR column and NVARCHAR parameter</h2>
+    <div class="writeup"><p><strong>Problem.</strong> <code class="mono">ConsignmentNumber</code> is <code class="mono">VARCHAR(20)</code> with a unique index. The calling code passes a .NET string through <code class="mono">AddWithValue</code>, which sends <code class="mono">NVARCHAR</code>. NVARCHAR has higher precedence, so SQL Server converts the column rather than the parameter, and a one-row lookup becomes a scan of the whole index.</p><p><strong>Fix.</strong> Send the right type. Nothing changes in the database:</p><p>// after command.Parameters.Add(&quot;@Number&quot;, SqlDbType.VarChar, 20).Value = number; ```</p><p><strong>Measured.</strong> Logical reads went from 2,918 to 6. Elapsed time went from about 66 ms to about 0.3 ms.</p><p><strong>Worth noticing.</strong> The result depends on collation. This database uses <code class="mono">SQL_Latin1_General_CP1_CI_AS</code>, where the conversion forces a scan. With a Windows collation SQL Server can often still seek, so the same code would cost much less, which is why the setup script pins the collation. Plans with this problem carry a <code class="mono">PlanAffectingConvert</code> warning, so they can be searched for across the plan cache instead of found one complaint at a time.</p></div>
+    <div class="case">
+    <h3>Lookup by consignment number <span class="rowcount mono">1 rows, same result before and after</span></h3>
+    <div class="meters">
+      <figure class="meter">
+    <figcaption>Logical reads</figcaption>
+    <div class="meter-row"><span class="meter-key">Before</span><span class="meter-track"><i class="meter-before" style="width:100%"></i></span><span class="meter-val">2,918</span></div>
+    <div class="meter-row"><span class="meter-key">After</span><span class="meter-track"><i class="meter-after" style="width:0.206%"></i></span><span class="meter-val">6</span></div>
+  </figure>
+      <figure class="meter">
+    <figcaption>Elapsed, median of 7 runs</figcaption>
+    <div class="meter-row"><span class="meter-key">Before</span><span class="meter-track"><i class="meter-before" style="width:100%"></i></span><span class="meter-val">66.2 ms</span></div>
+    <div class="meter-row"><span class="meter-key">After</span><span class="meter-track"><i class="meter-after" style="width:0.414%"></i></span><span class="meter-val">0.3 ms</span></div>
+  </figure>
+      <figure class="meter">
+    <figcaption>CPU</figcaption>
+    <div class="meter-row"><span class="meter-key">Before</span><span class="meter-track"><i class="meter-before" style="width:100%"></i></span><span class="meter-val">63 ms</span></div>
+    <div class="meter-row"><span class="meter-key">After</span><span class="meter-track"><i class="meter-after" style="width:0.000%"></i></span><span class="meter-val">0 ms</span></div>
+  </figure>
+    </div>
+    <div class="pair"><div>
+      <h4>Plan before</h4>
+      <pre class="plan"><span class="op">Nested Loops</span>  <span class="rows">actual 1, est. 1</span>
+<span class="op">  Index Scan UX_Consignments_Number</span>  <span class="rows">actual 1, est. 1</span>
+<span class="op">  Key Lookup PK_Consignments</span>  <span class="rows">actual 1, est. 1</span></pre>
+      <a class="plan-link" href="https://github.com/KevinDemo/sqlserver-performance-demo/blob/main/results/plans/04-implicit-conversion-before-1.sqlplan" target="_blank" rel="noopener">04-implicit-conversion-before-1.sqlplan</a>
+    </div><div>
+      <h4>Plan after</h4>
+      <pre class="plan"><span class="op">Nested Loops</span>  <span class="rows">actual 1, est. 1</span>
+<span class="op">  Index Seek UX_Consignments_Number</span>  <span class="rows">actual 1, est. 1</span>
+<span class="op">  Key Lookup PK_Consignments</span>  <span class="rows">actual 1, est. 1</span></pre>
+      <a class="plan-link" href="https://github.com/KevinDemo/sqlserver-performance-demo/blob/main/results/plans/04-implicit-conversion-after-1.sqlplan" target="_blank" rel="noopener">04-implicit-conversion-after-1.sqlplan</a>
+    </div></div>
+  </div>
+    <details><summary>The SQL, before and after</summary><div class="pair"><div><h4>before.sql</h4><pre>-- ConsignmentNumber is VARCHAR(20). This is what an ADO.NET call sends when it uses
+-- AddWithValue with a .NET string: an NVARCHAR parameter. The column gets converted, so no seek.
+-- BENCH:MEASURE lookup by consignment number
+EXEC sp_executesql
+    N'SELECT ConsignmentId, JobId, WeightKg, Items FROM dbo.Consignments WHERE ConsignmentNumber = @Number',
+    N'@Number NVARCHAR(20)',
+    @Number = N'HF0000450000';</pre></div><div><h4>after.sql</h4><pre>-- The parameter type now matches the column. The only change is in the calling code.
+-- BENCH:MEASURE lookup by consignment number
+EXEC sp_executesql
+    N'SELECT ConsignmentId, JobId, WeightKg, Items FROM dbo.Consignments WHERE ConsignmentNumber = @Number',
+    N'@Number VARCHAR(20)',
+    @Number = 'HF0000450000';</pre></div></div></details>
+  </section>
+<section class="scenario" id="s05">
+  <h2>Deadlock between two concurrent batches</h2>
+  <div class="writeup"><p><strong>Problem.</strong> Two batches update the same jobs and consignments at the same time. <code class="mono">dbo.RateJobs</code> goes Jobs then Consignments, and <code class="mono">dbo.ImportPods</code> goes Consignments then Jobs. Each ends up holding what the other needs, SQL Server kills one as the deadlock victim (error 1205), and that batch's transaction rolls back.</p><p><strong>Fix.</strong> Three things, in order of importance:</p><p>1. Consistent lock order: both procedures now touch Jobs first, then Consignments (<code class="mono">after.sql</code>). 2. Short transactions: 200 jobs per commit instead of 2,000, so locks are held for less time and a failure loses less work. 3. A retry on error 1205 with a short backoff, in <code class="mono">DeadlockRepro/Program.cs</code>, as a safety net.</p><p><strong>Run it.</strong></p><p>It runs two concurrent tasks through 20 rounds of 2,000 jobs in each of three modes, then checks the rows themselves: a job counts as processed only if both batches stamped it and all of its consignments.</p><p><strong>Measured.</strong></p><p><strong>Worth noticing.</strong> Every round deadlocks before the fix because the repro holds each transaction open long enough to overlap, using a simulated work delay. Real systems usually deadlock less often, and that makes the problem harder to diagnose, not milder. Retry alone recovers the data but the deadlocks keep happening, so it hides the cause and still pays for the rollbacks. The elapsed times come from this deliberately conflicting workload and should not be read as a general throughput gain.</p><p><code class="mono">read-deadlock-graphs.sql</code> pulls the graphs from the built-in <code class="mono">system_health</code> session. The XML includes host and login names, so review it before sharing it. The repro changes stamps on jobs 300,001 to 340,000; rerun <code class="mono">setup/setup.sh</code> for a pristine database.</p></div>
+  <div class="case">
+    <h3>20 rounds of 2,000 jobs, two concurrent batches per round, 40,000 jobs in total.</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Mode</th><th class="num">Deadlocks (error 1205)</th><th class="num">Retries</th><th class="num">Batches that gave up</th><th class="num">Jobs fully processed</th><th class="num">Jobs expected</th><th class="num">Elapsed (s)</th></tr></thead>
+      <tbody><tr><td>before</td><td class="num">20</td><td class="num">0</td><td class="num">20</td><td class="num">0</td><td class="num">40,000</td><td class="num">16.4</td></tr><tr><td>retry-only</td><td class="num">20</td><td class="num">20</td><td class="num">0</td><td class="num">40,000</td><td class="num">40,000</td><td class="num">13.4</td></tr><tr><td>fixed</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">40,000</td><td class="num">40,000</td><td class="num">6.9</td></tr></tbody>
+    </table></div>
+  </div>
+  <details><summary>The SQL, before and after</summary><div class="pair"><div><h4>before.sql</h4><pre>-- Two nightly batches touch the same jobs and consignments in opposite table order.
+-- RateJobs goes Jobs then Consignments, ImportPods goes Consignments then Jobs.
+-- @WorkMs stands in for the application work done while the transaction is open.
+CREATE OR ALTER PROCEDURE dbo.RateJobs
+    @FromJobId INT, @ToJobId INT, @Stamp DATETIME2(0), @WorkMs INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    DECLARE @Delay CHAR(12) = CONVERT(CHAR(12), DATEADD(MILLISECOND, @WorkMs, CAST('00:00:00' AS TIME(3))), 114);
+    BEGIN TRANSACTION;
+        UPDATE dbo.Jobs SET RatedUtc = @Stamp WHERE JobId BETWEEN @FromJobId AND @ToJobId;
+        WAITFOR DELAY @Delay;
+        UPDATE dbo.Consignments SET LastUpdatedUtc = @Stamp WHERE JobId BETWEEN @FromJobId AND @ToJobId;
+    COMMIT;
+END
+GO
+CREATE OR ALTER PROCEDURE dbo.ImportPods
+    @FromJobId INT, @ToJobId INT, @Stamp DATETIME2(0), @WorkMs INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    DECLARE @Delay CHAR(12) = CONVERT(CHAR(12), DATEADD(MILLISECOND, @WorkMs, CAST('00:00:00' AS TIME(3))), 114);
+    BEGIN TRANSACTION;
+        UPDATE dbo.Consignments SET PodUtc = @Stamp WHERE JobId BETWEEN @FromJobId AND @ToJobId;
+        WAITFOR DELAY @Delay;
+        UPDATE dbo.Jobs SET DeliveredUtc = @Stamp WHERE JobId BETWEEN @FromJobId AND @ToJobId;
+    COMMIT;
+END
+GO</pre></div><div><h4>after.sql</h4><pre>-- The fix on the database side: both batches now lock Jobs first, then Consignments.
+-- RateJobs already used that order and stays as it was. The client side of the fix (short batches
+-- and a retry on error 1205) is in DeadlockRepro/Program.cs.
+CREATE OR ALTER PROCEDURE dbo.RateJobs
+    @FromJobId INT, @ToJobId INT, @Stamp DATETIME2(0), @WorkMs INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    DECLARE @Delay CHAR(12) = CONVERT(CHAR(12), DATEADD(MILLISECOND, @WorkMs, CAST('00:00:00' AS TIME(3))), 114);
+    BEGIN TRANSACTION;
+        UPDATE dbo.Jobs SET RatedUtc = @Stamp WHERE JobId BETWEEN @FromJobId AND @ToJobId;
+        WAITFOR DELAY @Delay;
+        UPDATE dbo.Consignments SET LastUpdatedUtc = @Stamp WHERE JobId BETWEEN @FromJobId AND @ToJobId;
+    COMMIT;
+END
+GO
+CREATE OR ALTER PROCEDURE dbo.ImportPods
+    @FromJobId INT, @ToJobId INT, @Stamp DATETIME2(0), @WorkMs INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    DECLARE @Delay CHAR(12) = CONVERT(CHAR(12), DATEADD(MILLISECOND, @WorkMs, CAST('00:00:00' AS TIME(3))), 114);
+    BEGIN TRANSACTION;
+        UPDATE dbo.Jobs SET DeliveredUtc = @Stamp WHERE JobId BETWEEN @FromJobId AND @ToJobId;
+        WAITFOR DELAY @Delay;
+        UPDATE dbo.Consignments SET PodUtc = @Stamp WHERE JobId BETWEEN @FromJobId AND @ToJobId;
+    COMMIT;
+END
+GO</pre></div></div></details>
+</section>
+<footer class="foot">All data is generated and every name is invented. This is a results site: running the queries needs SQL Server, and the steps are in the repo.</footer>
+
+</div>
+<script src="theme.js"></script>
+
+</body>
+</html>

@@ -2,6 +2,10 @@
 
 A reproducible tuning case study on the schema of Harbour Freight Couriers, a fictional courier company. All data is generated and every name is invented. Five common production problems are reproduced, fixed and measured, and you can rerun all of it on your own machine.
 
+![The results site: a scenario's write-up with its measured reads, elapsed time and CPU.](docs/results.png)
+
+*The results site, generated from `results/`. Screenshot taken in headless Chrome on 4 November 2026.*
+
 ## The problem
 
 Slow SQL Server systems are rarely slow for exotic reasons. The same few causes come up again and again, and they are hard to see from application code: a function on an indexed column, an index that nearly fits, a cached plan built for the wrong customer, a parameter of the wrong type, two batches locking tables in opposite order. This repo shows each one with its evidence and its fix.
@@ -33,6 +37,20 @@ Logical reads are the stable measure: they came out the same on every run. Elaps
 This is a small database on a developer machine with everything in memory. On a production server with cold pages, real concurrency and more data, the same read reductions usually matter more, but these exact ratios are not a promise. CPU per scenario is in the raw results; many fast queries show 0 ms because the session counter is too coarse to measure them.
 
 Not every scenario shows a dramatic time saving. Scenario 02 saves about a millisecond per call, and its case rests on the 800 times fewer reads. Scenario 01 cuts reads by only 2.5 times, and most of its gain is CPU. The write-ups say so.
+
+## Live demo
+
+[https://kevindemo.github.io/sqlserver-performance-demo/](https://kevindemo.github.io/sqlserver-performance-demo/)
+
+A static results site generated from `results/results.json`, `results/deadlock.md`, the `.sqlplan` files and the scenario folders: before and after plans with actual rows, reads, timings and the SQL. Nothing is typed in by hand, and the build fails if a plan's row count does not match its results row.
+
+```bash
+node static-demo/build.mjs
+```
+
+This needs only Node and writes `docs-site/`. Every asset path is relative, so it works under `/sqlserver-performance-demo/`. GitHub Pages only publishes a repo's root or `docs/`, so this folder goes out through a `gh-pages` branch or an Actions workflow. It has not been deployed yet.
+
+There is no Dockerfile, because this repo is scripts and a benchmark rather than a service.
 
 ## How to run
 
