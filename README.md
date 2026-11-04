@@ -40,7 +40,7 @@ Not every scenario shows a dramatic time saving. Scenario 02 saves about a milli
 
 ## Live demo
 
-[https://kevindemo.github.io/sqlserver-performance-demo/](https://kevindemo.github.io/sqlserver-performance-demo/)
+[https://demo.oct28th.com/sqlserver-performance-demo/](https://demo.oct28th.com/sqlserver-performance-demo/)
 
 A static results site generated from `results/results.json`, `results/deadlock.md`, the `.sqlplan` files and the scenario folders: before and after plans with actual rows, reads, timings and the SQL. Nothing is typed in by hand, and the build fails if a plan's row count does not match its results row.
 
