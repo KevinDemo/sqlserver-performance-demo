@@ -1,6 +1,6 @@
 # SQL Server performance case study
 
-A reproducible tuning case study on the schema of Harbour Freight Couriers, a fictional courier company. All data is generated and every name is invented. Five common production problems are reproduced, fixed and measured, and you can rerun all of it on your own machine in under a minute.
+A reproducible tuning case study on the schema of Harbour Freight Couriers, a fictional courier company. All data is generated and every name is invented. Five common production problems are reproduced, fixed and measured, and you can rerun all of it on your own machine.
 
 ## The problem
 
