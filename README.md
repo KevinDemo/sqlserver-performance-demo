@@ -90,4 +90,4 @@ The SQL Server Performance Health Check is a fixed-price review of your database
 4. A written report that ranks findings by impact, with before and after measurements wherever I can reproduce the problem safely.
 5. Ready-to-review scripts for the recommended changes. You decide what gets applied and when.
 
-Read-only access is enough for the review. Details and contact: [kevindemo.github.io](https://kevindemo.github.io).
+Read-only access is enough for the review. Details and contact: [kevindemo.github.io](https://oct28th.com).
